@@ -83,8 +83,12 @@ export const analyzeNewsWithGemini = async (newsId) => {
     return news;
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
+  const rawKeys = (process.env.GEMINI_API_KEY || '')
+    .split(',')
+    .map(k => k.trim())
+    .filter(Boolean);
+
+  if (rawKeys.length === 0) {
     throw new Error('GEMINI_API_KEY ortam değişkeni tanımlanmamış.');
   }
 
@@ -125,30 +129,32 @@ Response JSON Format:
   const candidateModels = Array.from(new Set([
     process.env.GEMINI_MODEL,
     'gemini-3.6-flash',
-    'gemini-3.5-flash',
-    'gemini-2.5-flash'
+    'gemini-3.5-flash'
   ].filter(Boolean)));
 
   let lastError = null;
   let responseText = null;
 
-  for (const modelName of candidateModels) {
-    for (let attempt = 1; attempt <= 2; attempt++) {
+  // Tüm tanımlı API Key'leri ve Modelleri dolaş (429 anında otomatik diğer anahtara geçer)
+  keyLoop:
+  for (const currentApiKey of rawKeys) {
+    for (const modelName of candidateModels) {
       try {
-        responseText = await callGeminiApi(modelName, prompt, apiKey);
-        if (responseText) break;
+        responseText = await callGeminiApi(modelName, prompt, currentApiKey);
+        if (responseText) break keyLoop;
       } catch (err) {
         lastError = err;
-        console.warn(`⚠️ [Gemini AI] Model ${modelName} (Deneme ${attempt}) hata aldı: ${err.message}`);
-        if (err.status === 429 || err.message.includes('429') || err.message.includes('Quota exceeded')) {
-          console.log(`⏱️ [Gemini AI] Kota limitine takılındı (429 Rate Limit). 15 saniye beklenip tekrar deneniyor...`);
-          await sleep(15000);
-        } else if (err.status === 503 || err.message.includes('503')) {
-          await sleep(2000);
+        console.warn(`⚠️ [Gemini AI] Model ${modelName} hata aldı: ${err.message}`);
+        const isRateLimit = err.status === 429 || err.message.includes('429') || err.message.includes('Quota exceeded');
+        if (isRateLimit && rawKeys.length > 1) {
+          console.log(`🔄 [Gemini AI] Kota limitine ulaşıldı, diğer API Anahtarına geçiliyor...`);
+          continue keyLoop; // Bir sonraki API key'e geç
+        }
+        if (err.status === 503 || err.message.includes('503')) {
+          await sleep(1500);
         }
       }
     }
-    if (responseText) break;
   }
 
   if (!responseText) {

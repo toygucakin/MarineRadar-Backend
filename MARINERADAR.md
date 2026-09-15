@@ -88,12 +88,13 @@
 - **Aşama 63 (TAMAMLANDI ✅):** Gemini 2.0 Flash Modeline Geçiş & Canlı API Buton Testi (`src/services/geminiService.js`, `.env`, `.env.example`, `scripts/init-env.js`). Proje varsayılan yapay zeka modeli resmi ve kamuya açık Google AI Studio destekli `gemini-2.0-flash` (yedek: `gemini-1.5-flash`) olarak yapılandırıldı. Canlı API endpoint'i (`POST /api/news/:id/ai-analyze?force=true`) üzerinden yeniden analiz butonu simüle edilerek test edildi.
 - **Aşama 64 (TAMAMLANDI ✅):** Yeni Nesil Gemini `AQ.Ab8RN...` API Key & `x-goog-api-key` Header Desteği (`src/services/geminiService.js`, `.env`). Google Cloud Developer Console yeni nesil `AQ.Ab8RN...` API anahtarları için `x-goog-api-key` HTTP header mimarisi entegre edildi. `gemini-3.6-flash`, `gemini-3.5-flash` ve `gemini-2.5-flash` modelleri canlı veritabanı haberi üzerinde %100 başarıyla çalıştırıldı ve doğrulandı.
 - **Aşama 65 (TAMAMLANDI ✅):** Yapay Zeka Analizi Sonrası Modal Kalıcılığı & Önbellek Önleme (Cache Busting) Senkronizasyonu (`public/app.js`, `MarineRadar-Frontend/app.js`, `src/controllers/newsController.js`). Tekil haber analizi yapıldıktan sonra modal kapatılıp tekrar açıldığında analizin kaybolması/butonun sıfırlanması sorunu giderildi; `appState.allNews` anlık bellek senkronizasyonu, `renderNewsGrid()` anında kart tazelemesi ve HTTP `cache: no-store` önbellek engelleme başlıkları eklendi.
+- **Aşama 66 (TAMAMLANDI ✅):** Çoklu API Anahtarı Otomatik Rotasyonu & 429 Kota Koruması (`src/services/geminiService.js`, `.env`). Google Gemini API kota sınırlarına (429 Rate Limit) karşı virgülle ayrılmış çoklu API anahtarı havuzu (`GEMINI_API_KEY=KEY1,KEY2,KEY3`) entegre edildi. Bir anahtar kota aşıldı uyarısı aldığında sistem anında diğer yedek anahtara geçerek kesintisiz yapay zeka analitiği sunar.
 
 ---
 
 ## 🔮 Gelecek Aşamalar (Planned Roadmap / Future Phases)
 
-- **Aşama 66 (PLANLANAN 📋 - Derin Metin Kesme Çapası & Reklam/İlişkili Haber Filtresi):**
+- **Aşama 67 (PLANLANAN 📋 - Derin Metin Kesme Çapası & Reklam/İlişkili Haber Filtresi):**
   - **Problem:** Orijinal haber sayfalarında (örn. gCaptain) asıl makale bittikten sonra gelen `Tags:`, bülten abonelik metinleri (`Subscribe for Daily Maritime Insights...`, `Essential maritime and offshore news...`) ve alt kısımdaki `Related Articles` (İlişkili Haberler) blokları makale gövdesiyle birlikte kazınmaktadır.
   - **1. Sınır Çapası (Hard Truncation / Stop Tokens):** `sanitizeArticleText` ve `scrapeArticleContent` içerisine sonlanma işaretçileri (`Tags:`, `Essential maritime and offshore news`, `Related Articles:`, `Subscribe to/for`) eklenerek, bu ifadelere rastlandığı anda metin toplama işleminin `break` edilip kesilmesi.
   - **2. Agresif DOM Temizliği (Cheerio Pruning):** `[class*="related"]`, `[class*="subscribe"]`, `[class*="newsletter"]`, `.tags`, `.yarpp-related` seçicilerinin DOM'dan peşinen kaldırılması.

@@ -61,6 +61,10 @@ export const getNewsById = async (req, res, next) => {
       doc.fullContent = sanitizeArticleText(doc.fullContent);
     }
 
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+
     res.status(200).json({
       success: true,
       data: doc

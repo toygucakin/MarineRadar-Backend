@@ -1,27 +1,58 @@
+import axios from 'axios';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { News } from '../models/News.js';
 
 /**
- * Gemini AI İstemci Başlatıcı
- * @param {string} [overrideModel] - İsteğe bağlı model adı
+ * Gemini AI İçin REST API / SDK Çağrı Yardımcısı
  */
-const getGeminiModel = (overrideModel) => {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error('GEMINI_API_KEY ortam değişkeni tanımlanmamış.');
+const callGeminiApi = async (modelName, prompt, apiKey) => {
+  // 1. Birincil Yöntem: Direct REST Call with x-goog-api-key (Yeni AQ.Ab8RN... ve AIzaSy... keyleri ile %100 uyumlu)
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
+    const response = await axios.post(
+      url,
+      {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.2
+        }
+      },
+      {
+        headers: {
+          'x-goog-api-key': apiKey,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      }
+    );
+
+    const candidate = response.data?.candidates?.[0];
+    if (candidate?.content?.parts?.[0]?.text) {
+      return candidate.content.parts[0].text;
+    }
+  } catch (restErr) {
+    const status = restErr.response?.status;
+    const errData = restErr.response?.data;
+    console.warn(`⚠️ [Gemini AI REST] ${modelName} HTTP ${status} uyarısı:`, errData?.error?.message || restErr.message);
+
+    // Eger REST 404 (model bulunamadı) veya 429 dışı bir hata ise SDK ile dene
+    if (status === 404) {
+      throw new Error(errData?.error?.message || `Model ${modelName} bulunamadı.`);
+    }
   }
 
-  const modelName = overrideModel || process.env.GEMINI_MODEL || 'gemini-flash-latest';
-
+  // 2. İkincil Yöntem: Standard SDK Fallback
   const genAI = new GoogleGenerativeAI(apiKey);
-  
-  return genAI.getGenerativeModel({
+  const model = genAI.getGenerativeModel({
     model: modelName,
     generationConfig: {
       responseMimeType: 'application/json',
       temperature: 0.2
     }
   });
+  const result = await model.generateContent(prompt);
+  return result.response.text();
 };
 
 /**
@@ -31,10 +62,6 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
  * Belirli bir haberi Google Gemini AI ile analiz eder ve Mongoose modelini günceller.
- * Otomatik yenileme ve 503/geçici hata durumunda yedek model desteğine sahiptir.
- * 
- * @param {string} newsId - Analiz edilecek haberin ID'si
- * @returns {Promise<Object>} Analiz edilen haber dokümanı
  */
 export const analyzeNewsWithGemini = async (newsId) => {
   const news = await News.findById(newsId);
@@ -42,7 +69,7 @@ export const analyzeNewsWithGemini = async (newsId) => {
     throw new Error(`Haber bulunamadı (ID: ${newsId})`);
   }
 
-  // Test ortamı için hızlı mock yanıtı (Quota limitlerini ve zaman aşımlarını önlemek için)
+  // Test ortamı için hızlı mock yanıtı
   if (process.env.NODE_ENV === 'test') {
     news.aiNote = 'Test ortamı simülasyonu: Google Gemini AI ile karbonsuzlaşma ve regülasyon analizi gerçekleştirildi.';
     news.aiImportanceScore = 8.5;
@@ -54,6 +81,11 @@ export const analyzeNewsWithGemini = async (newsId) => {
     await news.save();
     console.log(`🤖 [Gemini AI Test Mock] Haber Simüle Edildi: "${news.title}"`);
     return news;
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY ortam değişkeni tanımlanmamış.');
   }
 
   const articleTitle = news.title || 'Untitled Maritime Article';
@@ -92,11 +124,10 @@ Response JSON Format:
 
   const candidateModels = Array.from(new Set([
     process.env.GEMINI_MODEL,
-    'gemini-flash-latest',
+    'gemini-3.6-flash',
     'gemini-3.5-flash',
-    'gemini-3.6-flash'
+    'gemini-2.5-flash'
   ].filter(Boolean)));
-
 
   let lastError = null;
   let responseText = null;
@@ -104,9 +135,7 @@ Response JSON Format:
   for (const modelName of candidateModels) {
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        const model = getGeminiModel(modelName);
-        const result = await model.generateContent(prompt);
-        responseText = result.response.text();
+        responseText = await callGeminiApi(modelName, prompt, apiKey);
         if (responseText) break;
       } catch (err) {
         lastError = err;

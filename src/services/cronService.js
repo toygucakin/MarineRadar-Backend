@@ -77,10 +77,23 @@ export const initCronJobs = () => {
     runFullPipeline('Sunucu Açılış Taraması');
   }, 2000);
 
-  // 2. Her 6 saatte bir ("0 */6 * * *") arka planda tam boru hattını çalıştır
+  // 2. Her 5 dakikada bir ("*/5 * * * *") henüz AI analizi yapılmamış 25 haberi arka planda yavaş yavaş analiz et
+  cron.schedule('*/5 * * * *', async () => {
+    try {
+      console.log('🔄 [Background AI Queue] Henüz AI analizi yapılmamış haberler taranıyor...');
+      const res = await analyzeAllUnprocessedNewsWithGemini(25);
+      if (res.analyzedCount > 0) {
+        console.log(`✅ [Background AI Queue] ${res.analyzedCount} adet haber başarıyla Gemini AI ile analiz edildi.`);
+      }
+    } catch (err) {
+      console.warn('⚠️ [Background AI Queue] Arka plan AI taramasında hata:', err.message);
+    }
+  });
+
+  // 3. Her 6 saatte bir ("0 */6 * * *") arka planda tam boru hattını çalıştır
   cron.schedule('0 */6 * * *', () => {
     runFullPipeline('6 Saatlik Periyodik Tarama');
   });
 
-  console.log('⚡ Zamanlanmış Veri Boru Hattı Aktif: Sunucu açıldığında ve her 6 saatte bir (Ingest ➔ Deep Scrape ➔ Vessel Match ➔ Regulation Classifier ➔ Gemini AI Engine) adımlarını otomatik çalıştıracak.');
+  console.log('⚡ Zamanlanmış Veri Boru Hattı Aktif: 5 dakikalık periyotlarla arka plan AI analizi ve 6 saatte bir tam boru hattı otomatik çalışacak.');
 };

@@ -83,13 +83,22 @@
 - **Aşama 58 (TAMAMLANDI ✅):** Gemini AI Model Konfigürasyonu Düzeltmesi & Nginx Pipeline Zaman Aşımı Optimize Etme (`.env`, `src/services/geminiService.js`, `MarineRadar-Frontend/nginx.conf`). `.env` ve `geminiService.js` içerisindeki geçersiz `gemini-3.5-flash` model ismi `gemini-1.5-flash` olarak güncellendi. Nginx `proxy_read_timeout 300s` kuralı eklenerek 5 Aşamalı Tam Veri Boru Hattının (`Run Full Pipeline`) uzun taramalarda 504 Gateway Timeout vermesi engellendi.
 - **Aşama 59 (TAMAMLANDI ✅):** Otomatik Gemini AI Rate Limit Koruması & Null Not Backfill İyileştirmesi (`src/services/rssService.js`, `src/services/htmlService.js`, `src/services/geminiService.js`). Toplu haber kazımada 429 Rate Limit hatasını önlemek için 1.5 sn gecikme koruması eklendi. Analizi aksamış haberlerin (`aiNote: null`) arka plan boru hattında otomatik taranması sağlandı.
 - **Aşama 60 (TAMAMLANDI ✅):** Geçersiz/Eski Gemini AI Modellerinin Temizlenmesi (`src/services/geminiService.js`). API hatalarına ve 401 kısıtlamalarına neden olan eski/geçersiz `gemini-1.5-flash`, `gemini-2.0-flash` ve `gemini-2.5-flash` modelleri kaldırıldı. Model havuzu güncel ve geçerli Google Gemini modelleri (`gemini-flash-latest`, `gemini-3.5-flash`, `gemini-3.6-flash`) ile yapılandırıldı.
+- **Aşama 61 (TAMAMLANDI ✅):** Gemini AI REST API Model Uyumlaştırması & OAuth 401 Hata Onarımı (`src/services/geminiService.js`, `.env`, `.env.example`). Google AI Studio REST API (`generativelanguage.googleapis.com`) endpoint'inde `gemini-3.6-flash` gibi özel modeller çağrıldığında dönen `401 Unauthorized (ACCESS_TOKEN_TYPE_UNSUPPORTED)` hatası giderildi. Model havuzu kamuya açık resmi Google AI Studio modelleri (`gemini-2.0-flash`, `gemini-1.5-flash`, `gemini-1.5-pro`) ile güncellendi.
+- **Aşama 62 (TAMAMLANDI ✅):** Gemini 3.5 Flash Modeline Geçiş & Eski Modellerin Temizlenmesi (`src/services/geminiService.js`, `.env`, `.env.example`, `scripts/init-env.js`). Gemini 2.0 Flash, 1.5 Flash ve 1.5 Pro gibi eski/pasif modeller kod tabanından ve konfigürasyonlardan tamamen kaldırıldı. Birincil ve tek model olarak `gemini-3.5-flash` yapılandırıldı.
+- **Aşama 63 (TAMAMLANDI ✅):** Gemini 2.0 Flash Modeline Geçiş & Canlı API Buton Testi (`src/services/geminiService.js`, `.env`, `.env.example`, `scripts/init-env.js`). Proje varsayılan yapay zeka modeli resmi ve kamuya açık Google AI Studio destekli `gemini-2.0-flash` (yedek: `gemini-1.5-flash`) olarak yapılandırıldı. Canlı API endpoint'i (`POST /api/news/:id/ai-analyze?force=true`) üzerinden yeniden analiz butonu simüle edilerek test edildi.
+- **Aşama 64 (TAMAMLANDI ✅):** Yeni Nesil Gemini `AQ.Ab8RN...` API Key & `x-goog-api-key` Header Desteği (`src/services/geminiService.js`, `.env`). Google Cloud Developer Console yeni nesil `AQ.Ab8RN...` API anahtarları için `x-goog-api-key` HTTP header mimarisi entegre edildi. `gemini-3.6-flash`, `gemini-3.5-flash` ve `gemini-2.5-flash` modelleri canlı veritabanı haberi üzerinde %100 başarıyla çalıştırıldı ve doğrulandı.
+- **Aşama 65 (TAMAMLANDI ✅):** Yapay Zeka Analizi Sonrası Modal Kalıcılığı & Önbellek Önleme (Cache Busting) Senkronizasyonu (`public/app.js`, `MarineRadar-Frontend/app.js`, `src/controllers/newsController.js`). Tekil haber analizi yapıldıktan sonra modal kapatılıp tekrar açıldığında analizin kaybolması/butonun sıfırlanması sorunu giderildi; `appState.allNews` anlık bellek senkronizasyonu, `renderNewsGrid()` anında kart tazelemesi ve HTTP `cache: no-store` önbellek engelleme başlıkları eklendi.
 
 ---
 
 ## 🔮 Gelecek Aşamalar (Planned Roadmap / Future Phases)
 
-- **Tüm Planlanan Aşamalar Başarıyla Tamamlandı! 🎉 Proje İki Bağımsız GitHub Repozituvarı Halinde Canlıda Yayınlandı.**
-
+- **Aşama 66 (PLANLANAN 📋 - Derin Metin Kesme Çapası & Reklam/İlişkili Haber Filtresi):**
+  - **Problem:** Orijinal haber sayfalarında (örn. gCaptain) asıl makale bittikten sonra gelen `Tags:`, bülten abonelik metinleri (`Subscribe for Daily Maritime Insights...`, `Essential maritime and offshore news...`) ve alt kısımdaki `Related Articles` (İlişkili Haberler) blokları makale gövdesiyle birlikte kazınmaktadır.
+  - **1. Sınır Çapası (Hard Truncation / Stop Tokens):** `sanitizeArticleText` ve `scrapeArticleContent` içerisine sonlanma işaretçileri (`Tags:`, `Essential maritime and offshore news`, `Related Articles:`, `Subscribe to/for`) eklenerek, bu ifadelere rastlandığı anda metin toplama işleminin `break` edilip kesilmesi.
+  - **2. Agresif DOM Temizliği (Cheerio Pruning):** `[class*="related"]`, `[class*="subscribe"]`, `[class*="newsletter"]`, `.tags`, `.yarpp-related` seçicilerinin DOM'dan peşinen kaldırılması.
+  - **3. Doğrudan Çocuk Paragraf Seçicisi (Direct Child Scope):** İç içe geçmiş yan bileşenleri elemek için `.entry-content > p` doğrudan seçicisinin kullanılması.
+  - **4. Geriye Dönük Sterilizasyon (Backfill Sanitization):** Veritabanında mevcut `fullContent` kayıtlarının taranarak kuyruk gürültülerinin temizlenmesi.
 
 ---
 

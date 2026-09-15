@@ -96,12 +96,52 @@
 
 ## 🔮 Gelecek Aşamalar (Planned Roadmap / Future Phases)
 
-- **Aşama 69 (PLANLANAN 📋 - Derin Metin Kesme Çapası & Reklam/İlişkili Haber Filtresi):**
-  - **Problem:** Orijinal haber sayfalarında (örn. gCaptain) asıl makale bittikten sonra gelen `Tags:`, bülten abonelik metinleri (`Subscribe for Daily Maritime Insights...`, `Essential maritime and offshore news...`) ve alt kısımdaki `Related Articles` (İlişkili Haberler) blokları makale gövdesiyle birlikte kazınmaktadır.
-  - **1. Sınır Çapası (Hard Truncation / Stop Tokens):** `sanitizeArticleText` ve `scrapeArticleContent` içerisine sonlanma işaretçileri (`Tags:`, `Essential maritime and offshore news`, `Related Articles:`, `Subscribe to/for`) eklenerek, bu ifadelere rastlandığı anda metin toplama işleminin `break` edilip kesilmesi.
-  - **2. Agresif DOM Temizliği (Cheerio Pruning):** `[class*="related"]`, `[class*="subscribe"]`, `[class*="newsletter"]`, `.tags`, `.yarpp-related` seçicilerinin DOM'dan peşinen kaldırılması.
-  - **3. Doğrudan Çocuk Paragraf Seçicisi (Direct Child Scope):** İç içe geçmiş yan bileşenleri elemek için `.entry-content > p` doğrudan seçicisinin kullanılması.
-  - **4. Geriye Dönük Sterilizasyon (Backfill Sanitization):** Veritabanında mevcut `fullContent` kayıtlarının taranarak kuyruk gürültülerinin temizlenmesi.
+- **Aşama 69 (PLANLANAN 📋 - İçerik Metinlerinin Doğru Bitiş Noktalarına Kadar Çekilmesi & Reklam/İlişkili Haber Filtresi):**
+  - **Problem Tanımı:** Orijinal haber sayfalarında (örn. gCaptain, Splash247) asıl makale bittikten sonra gelen `Tags:`, bülten abonelik metinleri (`Subscribe for Daily Maritime Insights...`, `Essential maritime and offshore news...`), alt kısımdaki `Related Articles` (İlişkili Haberler) blokları, sponsorlu içerikler ve editöryal telif uyarıları makale gövdesiyle (`fullContent`) birlikte kazınmakta ve metin kirliliği yaratmaktadır.
+  - **1. Sınır Çapası (Hard Truncation / Stop Tokens):** `sanitizeArticleText` ve `scrapeArticleContent` içerisine sonlanma işaretçileri (`Tags:`, `Essential maritime and offshore news`, `Related Articles:`, `Subscribe to/for`, `Dive into a sea of curated content`, `Editorial Standards · Corrections`, `About gCaptain`) tanımlanacaktır. Bu ifadelere rastlandığı anda metin toplama döngüsü derhal `break` edilip kesilecektir.
+  - **2. Agresif DOM Temizliği (Cheerio Pruning):** `[class*="related"]`, `[class*="subscribe"]`, `[class*="newsletter"]`, `.tags`, `.yarpp-related`, `.post-tags`, `footer` seçicileri veri kazınmadan önce Cheerio DOM ağacından peşinen silinecektir (`.remove()`).
+  - **3. Doğrudan Çocuk Paragraf Seçicisi (Direct Child Scope):** İç içe geçmiş yan reklam bileşenlerini elemek için `.entry-content > p` ve doğrudan makale konteynırı sınırlandırmaları uygulanacaktır.
+  - **4. Geriye Dönük Sterilizasyon (Database Backfill):** Veritabanında mevcut tüm haberlerin `fullContent` alanları taranarak kuyruk gürültüleri otomatik olarak sterilize edilecek ve metin bütünlüğü sağlanacaktır.
+
+- **Aşama 70 (PLANLANAN 📋 - Yapay Zeka ile Haberden Etkilenen Şirketlerin Tespiti - AI Impacted Companies Detection):**
+  - **Hedef:** Haber metninde adı geçen veya haberdeki gelişmelerden (yeni filo yatırımı, dekarbonizasyon teknolojisi, karbon/emisyon regülasyonu, liman grevi, tedarik aksaması, yakıt anlaşması vb.) doğrudan veya dolaylı olarak etkilenen küresel denizcilik şirketlerinin Google Gemini AI ile tespit edilmesi.
+  - **1. Veritabanı Modeli Genişletmesi (`src/models/News.js`):**
+    ```javascript
+    aiCompanies: [
+      {
+        companyName: { type: String, trim: true },
+        impactType: { 
+          type: String, 
+          enum: [
+            'Shipowner', 
+            'Shipyard', 
+            'Port & Terminal', 
+            'Classification Society', 
+            'Energy & Fuel Provider', 
+            'Maritime Technology', 
+            'Charterer / Cargo Owner', 
+            'Financial & Insurance', 
+            'Government & Regulator'
+          ],
+          default: 'Shipowner'
+        },
+        summary: { type: String, trim: true } // Şirketin haberdeki rolü ve nasıl etkilendiğine dair 1-2 cümlelik analiz
+      }
+    ]
+    ```
+  - **2. Prompt Mühendisliği & Yapılandırılmış Çıktı:** Google Gemini AI sistem prompt'una denizcilik sektörel sınıflandırması ve `aiCompanies` JSON formatı eklenecek, metinde geçmeyen şirketleri uydurma (hallucination) riski katı prompt kurallarıyla engellenecektir.
+  - **3. REST API & Analiz Entegrasyonu:** `POST /api/news/:id/ai-analyze` ve toplu boru hattında tespit edilen şirketler veritabanına kaydedilecek, şirket bazlı arama ve indeksleme desteği sunulacaktır.
+
+- **Aşama 71 (PLANLANAN 📋 - Frontend Arayüz ve UI/UX Kapsamlı Düzenlemeleri):**
+  - **1. Haber Detay Modalı Revizyonu:**
+    - Yapay zeka değerlendirme kartında tespit edilen şirketlerin (`aiCompanies`) sektör tipine göre renkli etiketler (chipler/rozetler) halinde sunulması (örn. Port: Mavi, Shipowner: Zümrüt Yeşili, Shipyard: Mor, Fuel: Turuncu).
+    - Şirket etiketine tıklandığında veya fareyle üzerine gelindiğinde (tooltip / popover) yapay zekanın şirket için ürettiği özel etki özetinin (`summary`) görüntülenmesi.
+    - Metin kesme çapası sonrasında temizlenen makale metninin daha ferah, tipografik olarak düzenli ve paragraflar halinde okunabilir formatta gösterilmesi.
+  - **2. Haber Akış Kartları (News Grid):**
+    - Kart üzerinde etkilenen şirket rozeti / sayaç (`🏢 3 Şirket`) gösterimi.
+  - **3. Canlı Arama ve Kategori/Şirket Filtresi:**
+    - Arama kutusuna şirket ismi yazıldığında (örn. "Maersk", "Fincantieri", "ABB", "Port of Brownsville") hem başlıkta hem `aiCompanies` içinde geçen haberleri anında süzme yeteneği.
+    - Mobil ve tablet arayüzleri için responsive düzenleme ve dokunmatik ekran optimizasyonları.
 
 ---
 

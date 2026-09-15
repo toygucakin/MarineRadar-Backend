@@ -2,6 +2,47 @@ import axios from 'axios';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { News } from '../models/News.js';
 
+// Anahtar Maskeleme Yardımcısı
+const maskKey = (key) => {
+  if (!key || typeof key !== 'string') return 'UNKNOWN_KEY';
+  if (key.length <= 10) return '***';
+  return `${key.slice(0, 7)}...${key.slice(-4)}`;
+};
+
+// Global Anahtar Havuzu (Pool) ve Cooldown Takipçisi
+let activeKeyIndex = 0;
+const keyCooldownMap = new Map(); // apiKey -> expiresAt (timestamp)
+
+/**
+ * Mevcut API anahtarlarını öncelik sırasına koyar:
+ * 1. Cooldown süresi bitmiş veya hiç kısıtlanmamış anahtarlar (aktif indeksten itibaren)
+ * 2. Eğer hepsi kısıtlanmışsa, cooldown'ı en erken bitecek olan anahtar
+ */
+const getOrderedKeys = (rawKeys) => {
+  const now = Date.now();
+  for (const [key, expiresAt] of keyCooldownMap.entries()) {
+    if (expiresAt <= now) {
+      keyCooldownMap.delete(key);
+    }
+  }
+
+  const available = [];
+  const inCooldown = [];
+
+  for (let i = 0; i < rawKeys.length; i++) {
+    const idx = (activeKeyIndex + i) % rawKeys.length;
+    const k = rawKeys[idx];
+    if (keyCooldownMap.has(k)) {
+      inCooldown.push({ key: k, expiresAt: keyCooldownMap.get(k), index: idx });
+    } else {
+      available.push({ key: k, index: idx });
+    }
+  }
+
+  inCooldown.sort((a, b) => a.expiresAt - b.expiresAt);
+  return [...available.map(x => x.key), ...inCooldown.map(x => x.key)];
+};
+
 /**
  * Gemini AI İçin REST API / SDK Çağrı Yardımcısı
  */
@@ -34,15 +75,38 @@ const callGeminiApi = async (modelName, prompt, apiKey) => {
   } catch (restErr) {
     const status = restErr.response?.status;
     const errData = restErr.response?.data;
-    console.warn(`⚠️ [Gemini AI REST] ${modelName} HTTP ${status} uyarısı:`, errData?.error?.message || restErr.message);
+    const errMsg = errData?.error?.message || restErr.message;
+    console.warn(`⚠️ [Gemini AI REST] ${modelName} HTTP ${status} uyarısı:`, errMsg);
 
-    // Eger REST 404 (model bulunamadı) veya 429 dışı bir hata ise SDK ile dene
+    // 429 Kota Sınırı: Doğrudan hata fırlat ki anahtar rotasyonu hemen diğer anahtara atlasın
+    if (status === 429 || errMsg.includes('Quota exceeded') || errMsg.includes('RESOURCE_EXHAUSTED')) {
+      const err = new Error(errMsg || 'Google Gemini API 429 Rate Limit / Quota exceeded');
+      err.status = 429;
+      err.isRateLimit = true;
+      throw err;
+    }
+
+    // 503 Servis Yoğunluğu: Model rotasyonu için fırlat
+    if (status === 503) {
+      const err = new Error(errMsg || 'Google Gemini 503 Service Unavailable / High demand');
+      err.status = 503;
+      throw err;
+    }
+
+    // 404 Model Bulunamadı:
     if (status === 404) {
-      throw new Error(errData?.error?.message || `Model ${modelName} bulunamadı.`);
+      const err = new Error(errMsg || `Model ${modelName} bulunamadı.`);
+      err.status = 404;
+      throw err;
+    }
+
+    // Yeni AQ.Ab8RN... anahtarlarında SDK çağrılmamalıdır (SDK ?key= gönderir ve 401 üretir)
+    if (!apiKey.startsWith('AIzaSy')) {
+      throw restErr;
     }
   }
 
-  // 2. İkincil Yöntem: Standard SDK Fallback
+  // 2. İkincil Yöntem: Sadece eski AIzaSy... keyleri için SDK Fallback
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({
     model: modelName,
@@ -92,6 +156,9 @@ export const analyzeNewsWithGemini = async (newsId) => {
     throw new Error('GEMINI_API_KEY ortam değişkeni tanımlanmamış.');
   }
 
+  // Akıllı sıralanmış anahtar havuzu (Cooldown'da olmayan aktif anahtarlar en başta)
+  const orderedKeys = getOrderedKeys(rawKeys);
+
   const articleTitle = news.title || 'Untitled Maritime Article';
   const articleSummary = news.summary || '';
   const articleFullContent = (news.fullContent && news.fullContent.length > 50) ? news.fullContent : '';
@@ -135,21 +202,38 @@ Response JSON Format:
   let lastError = null;
   let responseText = null;
 
-  // Tüm tanımlı API Key'leri ve Modelleri dolaş (429 anında otomatik diğer anahtara geçer)
+  // Sıralanmış anahtarlar ve modeller üzerinden dolaş (429 anında otomatik diğer anahtara geçer)
   keyLoop:
-  for (const currentApiKey of rawKeys) {
+  for (const currentApiKey of orderedKeys) {
+    const masked = maskKey(currentApiKey);
     for (const modelName of candidateModels) {
       try {
         responseText = await callGeminiApi(modelName, prompt, currentApiKey);
-        if (responseText) break keyLoop;
+        if (responseText) {
+          // Başarılı olan anahtarın indeksini aktif indeks yap (sonraki istekler doğrudan buradan başlasın)
+          const keyPos = rawKeys.indexOf(currentApiKey);
+          if (keyPos !== -1) {
+            activeKeyIndex = keyPos;
+          }
+          break keyLoop;
+        }
       } catch (err) {
         lastError = err;
-        console.warn(`⚠️ [Gemini AI] Model ${modelName} hata aldı: ${err.message}`);
-        const isRateLimit = err.status === 429 || err.message.includes('429') || err.message.includes('Quota exceeded');
+        console.warn(`⚠️ [Gemini AI] Model ${modelName} & Key [${masked}] hata aldı: ${err.message}`);
+        
+        const isRateLimit = err.status === 429 || 
+          err.isRateLimit === true || 
+          err.message.includes('429') || 
+          err.message.includes('Quota exceeded') ||
+          err.message.includes('RESOURCE_EXHAUSTED');
+
         if (isRateLimit && rawKeys.length > 1) {
-          console.log(`🔄 [Gemini AI] Kota limitine ulaşıldı, diğer API Anahtarına geçiliyor...`);
-          continue keyLoop; // Bir sonraki API key'e geç
+          keyCooldownMap.set(currentApiKey, Date.now() + 60000); // 60 saniye boyunca bu anahtarı dinlendir
+          activeKeyIndex = (rawKeys.indexOf(currentApiKey) + 1) % rawKeys.length;
+          console.log(`🔄 [Gemini AI Key Pool] Anahtar [${masked}] kotası doldu (429 Rate Limit). 60 saniye beklemeye alındı. Otomatik olarak bir sonraki API anahtarına (${activeKeyIndex + 1}/${rawKeys.length}) geçiliyor...`);
+          continue keyLoop; // Hemen bir sonraki anahtara geç!
         }
+
         if (err.status === 503 || err.message.includes('503')) {
           await sleep(1500);
         }
